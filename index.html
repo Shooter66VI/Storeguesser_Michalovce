@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StoreGuessr Michalovce</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet">
+<script>
+  tailwind.config = {
+    theme: { extend: {
+      fontFamily: { display: ['"Barlow Condensed"', 'sans-serif'], sans: ['Barlow', 'sans-serif'] },
+      colors: { sign: '#0b4f9c', paper: '#f6f7f4', asphalt: '#20252b', yes: '#1f8f4e', no: '#c93c3c' }
+    } }
+  }
+</script>
+<style>
+  html, body { height: 100%; margin: 0; }
+  #pano { position: absolute; inset: 0; z-index: 0; }
+  .hidden-screen { display: none !important; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+  button:focus-visible { outline: 3px solid #f2c230; outline-offset: 2px; }
+</style>
+</head>
+<body class="font-sans bg-asphalt text-paper overflow-hidden">
+
+<!-- ÚVODNÁ OBRAZOVKA -->
+<section id="screen-start" class="absolute inset-0 flex items-center justify-center p-5 bg-asphalt">
+  <div class="w-full max-w-lg bg-paper text-asphalt rounded-xl overflow-hidden shadow-2xl border-4 border-white">
+    <div class="bg-sign text-white px-6 py-5">
+      <h1 class="font-display font-extrabold text-5xl leading-none">StoreGuessr Michalovce</h1>
+    </div>
+    <div class="p-6">
+      <p class="text-lg leading-relaxed">
+        Prejdi sa Street Viewom po obciach okresu Michalovce a rozhodni, či sa v nich nachádza obchod s potravinami.
+        Čaká ťa 5 náhodných obcí. Za každú správnu odpoveď získaš bod.
+      </p>
+      <p id="start-warning" class="hidden mt-4 text-sm bg-amber-100 border border-amber-400 rounded-md p-3"></p>
+      <button id="btn-start" disabled
+        class="mt-6 w-full bg-sign text-white font-display font-bold text-2xl py-3 rounded-lg hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+        Načítavam mapy…
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- HERNÁ OBRAZOVKA -->
+<section id="screen-game" class="hidden-screen absolute inset-0">
+  <div id="pano"></div>
+
+  <!-- horný panel -->
+  <div class="absolute top-3 left-3 right-3 z-20 flex items-start justify-between gap-3 pointer-events-none">
+    <div class="pointer-events-auto bg-sign text-white rounded-lg px-4 py-2 shadow-lg border-2 border-white">
+      <div class="text-xs opacity-80">Kolo <span id="hud-round">1</span> z 5</div>
+      <div id="hud-village" class="font-display font-bold text-3xl leading-none">—</div>
+    </div>
+    <div class="pointer-events-auto flex items-center gap-2">
+      <button id="btn-reset" class="bg-paper text-asphalt font-semibold text-sm rounded-lg px-3 py-2 shadow-lg hover:bg-white">Späť na štart</button>
+      <div class="bg-paper text-asphalt rounded-lg px-4 py-2 shadow-lg text-right">
+        <div class="text-xs opacity-70">Skóre</div>
+        <div class="font-display font-bold text-3xl leading-none"><span id="hud-score">0</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- plávajúci panel s otázkou -->
+  <div class="absolute bottom-5 left-1/2 -translate-x-1/2 z-20 w-[calc(100%-1.5rem)] max-w-xl bg-paper text-asphalt rounded-xl shadow-2xl border-2 border-white p-4">
+    <p class="font-display font-bold text-2xl sm:text-3xl text-center leading-tight">Nachádza sa v tejto obci obchod s potravinami?</p>
+    <div class="grid grid-cols-2 gap-3 mt-3">
+      <button id="btn-yes" class="answer bg-yes text-white font-display font-bold text-2xl py-3 rounded-lg hover:brightness-110 disabled:opacity-50 transition">✅ ÁNO</button>
+      <button id="btn-no" class="answer bg-no text-white font-display font-bold text-2xl py-3 rounded-lg hover:brightness-110 disabled:opacity-50 transition">❌ NIE</button>
+    </div>
+    <p class="text-xs text-center mt-2 opacity-70">Pohybuj sa šípkami na ceste alebo kliknutím do obrazu, otáčaj ťahaním myšou.</p>
+  </div>
+
+  <!-- načítavanie / chyba panorámy -->
+  <div id="loader" class="hidden-screen absolute inset-0 z-30 bg-asphalt/90 flex flex-col items-center justify-center gap-4 p-6 text-center">
+    <p id="loader-text" class="font-display font-bold text-3xl">Hľadám panorámu…</p>
+    <button id="btn-skip" class="hidden-screen bg-paper text-asphalt font-semibold px-5 py-2 rounded-lg">Preskočiť kolo</button>
+  </div>
+
+  <!-- modálne okno s vyhodnotením -->
+  <div id="modal" class="hidden-screen absolute inset-0 bg-black/60 flex items-center justify-center p-5 z-40">
+    <div class="w-full max-w-md bg-paper text-asphalt rounded-xl overflow-hidden shadow-2xl border-4 border-white">
+      <div id="modal-head" class="px-6 py-4 text-white">
+        <div id="modal-title" class="font-display font-extrabold text-4xl leading-none"></div>
+      </div>
+      <div class="p-6">
+        <p class="text-lg"><span id="modal-village" class="font-semibold"></span>: <span id="modal-answer" class="font-semibold"></span></p>
+        <p id="modal-fact" class="mt-3 leading-relaxed"></p>
+        <button id="btn-next" class="mt-6 w-full bg-sign text-white font-display font-bold text-2xl py-3 rounded-lg hover:bg-blue-800 transition-colors"></button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ZÁVEREČNÁ OBRAZOVKA -->
+<section id="screen-end" class="hidden-screen absolute inset-0 flex items-center justify-center p-5 bg-asphalt">
+  <div class="w-full max-w-lg bg-paper text-asphalt rounded-xl overflow-hidden shadow-2xl border-4 border-white text-center">
+    <div class="bg-sign text-white px-6 py-4"><h2 class="font-display font-extrabold text-4xl leading-none">Koniec hry</h2></div>
+    <div class="p-6">
+      <div class="font-display font-extrabold text-7xl"><span id="end-score">0</span> / 5</div>
+      <p id="end-msg" class="mt-3 text-lg leading-relaxed"></p>
+      <button id="btn-again" class="mt-6 w-full bg-sign text-white font-display font-bold text-2xl py-3 rounded-lg hover:bg-blue-800 transition-colors">Hrať znova</button>
+    </div>
+  </div>
+</section>
+
+<script>
+/* ======================= NASTAVENIE ======================= */
+// Vlož svoj Google Maps API kľúč (musí mať povolené „Maps JavaScript API“).
+const GOOGLE_MAPS_API_KEY = "AIzaSyAXCIp_uA1OCL83hjHyUUaYqYQ6iVYQzYY";
+const ROUNDS = 5;
+
+/* ======================= DATABÁZA OBCÍ ======================= */
+const VILLAGES = [
+  { name: "Jovsa",      lat: 48.8145, lng: 22.1132, store: true,  fact: "V Jovse fungujú potraviny Coop Jednota, no starší ľudia z okolitých usadlostí to majú ďalej." },
+  { name: "Kusín",      lat: 48.8356, lng: 22.0621, store: false, fact: "V Kusíne je obmedzená dostupnosť potravín, starší ľudia často závisia od dochádzania." },
+  { name: "Zalužice",   lat: 48.7694, lng: 21.9845, store: true,  fact: "Vo väčších Zalužiciach predajňa funguje, no pre imobilných obyvateľov je bez pomoci nedosiahnuteľná." },
+  { name: "Trhovište",  lat: 48.7612, lng: 21.7893, store: true,  fact: "Trhovište je stredisková obec so stabilnou občianskou vybavenosťou a obchodom." },
+  { name: "Pozdišovce", lat: 48.7563, lng: 21.8342, store: true,  fact: "Pozdišovce majú obchod, no pre odľahlejšie časti obce je to ďaleko." },
+  { name: "Lastomír",   lat: 48.7245, lng: 21.8712, store: true,  fact: "Lastomír leží tesne vedľa Michaloviec a obchod tu funguje." },
+  { name: "Závadka",    lat: 48.8012, lng: 22.1456, store: false, fact: "V Závadke obchod chýba – presne tu by našiel uplatnenie náš projekt SUSEDBOX!" },
+  { name: "Kaluža",     lat: 48.8234, lng: 22.0412, store: false, fact: "Kaluža je rekreačná oblasť pri Šírave, cez rok však obyvatelia trpia nedostatkom celoročných potravín." },
+  { name: "Vinné",      lat: 48.8189, lng: 21.9712, store: true,  fact: "Vinné je väčšia obec s fungujúcim obchodom priamo v centre." },
+  { name: "Hnojné",     lat: 48.7789, lng: 22.0912, store: false, fact: "V Hnojnom obchod nie je a starší ľudia sú odkázaní na susedskú pomoc alebo dochádzanie." }
+];
+
+/* ======================= STAV ======================= */
+let rounds = [], idx = 0, score = 0, answered = false;
+let panorama = null, svService = null, startPano = null, mapsReady = false;
+
+const $ = id => document.getElementById(id);
+const show = el => el.classList.remove("hidden-screen");
+const hide = el => el.classList.add("hidden-screen");
+function showScreen(name) {
+  ["start", "game", "end"].forEach(s => hide($("screen-" + s)));
+  show($("screen-" + name));
+}
+
+/* ======================= NAČÍTANIE GOOGLE MAPS ======================= */
+function loadMaps() {
+  if (!GOOGLE_MAPS_API_KEY || GOOGLE_MAPS_API_KEY.startsWith("SEM_")) {
+    const w = $("start-warning");
+    w.textContent = "Chýba API kľúč. Otvor index.html a do konštanty GOOGLE_MAPS_API_KEY vlož svoj kľúč pre Maps JavaScript API.";
+    show(w);
+    $("btn-start").textContent = "Chýba API kľúč";
+    return;
+  }
+  const s = document.createElement("script");
+  s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_API_KEY)}&v=weekly&language=sk&region=SK&callback=onMapsReady`;
+  s.async = true;
+  s.onerror = () => { $("btn-start").textContent = "Mapy sa nepodarilo načítať"; };
+  document.head.appendChild(s);
+}
+window.onMapsReady = function () {
+  mapsReady = true;
+  svService = new google.maps.StreetViewService();
+  $("btn-start").disabled = false;
+  $("btn-start").textContent = "Spustiť hru";
+};
+window.gm_authFailure = function () {
+  const w = $("start-warning");
+  w.textContent = "Google odmietol API kľúč. Skontroluj, že je povolené Maps JavaScript API, fakturácia a obmedzenia kľúča (HTTP referrer).";
+  show(w);
+  $("btn-start").disabled = true;
+  $("btn-start").textContent = "Neplatný API kľúč";
+};
+
+/* ======================= HERNÁ LOGIKA ======================= */
+function shuffle(a) {
+  a = a.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function startGame() {
+  rounds = shuffle(VILLAGES).slice(0, ROUNDS);
+  idx = 0; score = 0;
+  $("hud-score").textContent = "0";
+  showScreen("game");
+  loadRound();
+}
+
+// Bod vzdialený `dist` metrov od (lat, lng) v smere `bearing` stupňov.
+function offsetLatLng(lat, lng, dist, bearing) {
+  const R = 6371000, d = dist / R, b = bearing * Math.PI / 180;
+  const la = lat * Math.PI / 180, lo = lng * Math.PI / 180;
+  const la2 = Math.asin(Math.sin(la) * Math.cos(d) + Math.cos(la) * Math.sin(d) * Math.cos(b));
+  const lo2 = lo + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(la), Math.cos(d) - Math.sin(la) * Math.sin(la2));
+  return { lat: la2 * 180 / Math.PI, lng: lo2 * 180 / Math.PI };
+}
+
+// Presný stred obce cez Places API (New); pri zlyhaní sa použijú súradnice z databázy.
+async function resolveCenter(v) {
+  try {
+    const { Place } = await google.maps.importLibrary("places");
+    const { places } = await Place.searchByText({
+      textQuery: v.name + ", okres Michalovce, Slovensko",
+      fields: ["location"], maxResultCount: 1, language: "sk", region: "sk"
+    });
+    if (places && places.length) return { lat: places[0].location.lat(), lng: places[0].location.lng() };
+  } catch (e) { console.warn("Places (stred obce) nedostupné:", e); }
+  return { lat: v.lat, lng: v.lng };
+}
+
+// Obec s obchodom: štart 100–180 m od najbližšieho obchodu. Obec bez obchodu: štart pri strede obce.
+async function getSpawnTarget(v) {
+  const center = await resolveCenter(v);
+  if (!v.store) return { loc: center, radii: [150, 400, 1200], fallback: center };
+  try {
+    const { Place } = await google.maps.importLibrary("places");
+    const { places } = await Place.searchNearby({
+      fields: ["location"],
+      locationRestriction: { center, radius: 1000 },
+      includedPrimaryTypes: ["supermarket", "grocery_store", "convenience_store"],
+      maxResultCount: 5,
+      rankPreference: (google.maps.places.SearchNearbyRankPreference || {}).DISTANCE || "DISTANCE"
+    });
+    if (places && places.length) {
+      const s = { lat: places[0].location.lat(), lng: places[0].location.lng() };
+      const loc = offsetLatLng(s.lat, s.lng, 100 + Math.random() * 80, Math.random() * 360);
+      return { loc, radii: [80, 200, 500], fallback: s };
+    }
+  } catch (e) { console.warn("Places (obchody) nedostupné:", e); }
+  return { loc: center, radii: [150, 400, 1200], fallback: center };
+}
+
+function findPanorama(loc, radii) {
+  const tryRadius = i => new Promise((resolve, reject) => {
+    if (i >= radii.length) return reject(new Error("no pano"));
+    svService.getPanorama({
+      location: loc,
+      radius: radii[i],
+      preference: google.maps.StreetViewPreference.NEAREST,
+      sources: [google.maps.StreetViewSource.OUTDOOR]
+    }, (data, status) => {
+      if (status === google.maps.StreetViewStatus.OK) resolve(data);
+      else resolve(tryRadius(i + 1));
+    });
+  });
+  return tryRadius(0);
+}
+
+async function loadRound() {
+  const v = rounds[idx];
+  answered = false;
+  document.querySelectorAll(".answer").forEach(b => b.disabled = true);
+  hide($("modal")); hide($("btn-skip"));
+  $("hud-round").textContent = idx + 1;
+  $("hud-village").textContent = v.name;
+  $("loader-text").textContent = "Hľadám panorámu…";
+  show($("loader"));
+
+  try {
+    const t = await getSpawnTarget(v);
+    let data;
+    try { data = await findPanorama(t.loc, t.radii); }
+    catch (e) { data = await findPanorama(t.fallback, [300, 1000, 3000]); }
+    startPano = data.location.pano;
+    const heading = Math.random() * 360;
+    if (!panorama) {
+      panorama = new google.maps.StreetViewPanorama($("pano"), {
+        pano: startPano,
+        pov: { heading, pitch: 0 },
+        visible: true,
+        addressControl: false,
+        showRoadLabels: false,
+        linksControl: true,
+        panControl: true,
+        zoomControl: true,
+        fullscreenControl: false,
+        enableCloseButton: false,
+        motionTracking: false,
+        motionTrackingControl: false,
+        clickToGo: true,
+        scrollwheel: true
+      });
+    } else {
+      panorama.setPano(startPano);
+      panorama.setPov({ heading, pitch: 0 });
+      panorama.setVisible(true);
+    }
+    google.maps.event.trigger(panorama, "resize");
+    hide($("loader"));
+    document.querySelectorAll(".answer").forEach(b => b.disabled = false);
+  } catch (e) {
+    $("loader-text").textContent = "Pre obec " + v.name + " sa nenašla panoráma.";
+    show($("btn-skip"));
+  }
+}
+
+function answer(guess) {
+  if (answered) return;
+  answered = true;
+  document.querySelectorAll(".answer").forEach(b => b.disabled = true);
+  const v = rounds[idx];
+  const ok = guess === v.store;
+  if (ok) score++;
+  $("hud-score").textContent = score;
+
+  $("modal-head").className = "px-6 py-4 text-white " + (ok ? "bg-yes" : "bg-no");
+  $("modal-title").textContent = ok ? "✅ Správne!" : "❌ Nesprávne";
+  $("modal-village").textContent = v.name;
+  $("modal-answer").textContent = v.store ? "obchod s potravinami tu je" : "obchod s potravinami tu nie je";
+  $("modal-fact").textContent = v.fact;
+  $("btn-next").textContent = idx === ROUNDS - 1 ? "Zobraziť výsledok" : "Ďalšie kolo";
+  show($("modal"));
+  $("btn-next").focus();
+}
+
+function nextRound() {
+  hide($("modal"));
+  if (idx >= ROUNDS - 1) return endGame();
+  idx++;
+  loadRound();
+}
+
+function endGame() {
+  $("end-score").textContent = score;
+  const msgs = [
+    "Tentoraz to nevyšlo, ale práve preto je dôležité poznať, ako to v obciach vyzerá.",
+    "Slabší výsledok. Mnohé obce majú s dostupnosťou potravín väčší problém, než sa zdá.",
+    "Dobrý základ, o obciach okresu už vieš dosť.",
+    "Veľmi dobrý výsledok, okolie Michaloviec poznáš.",
+    "Takmer dokonalé, poznáš to tu výborne.",
+    "Plný počet bodov. Dokonalý znalec okresu Michalovce!"
+  ];
+  $("end-msg").textContent = msgs[score];
+  showScreen("end");
+}
+
+/* ======================= UDALOSTI ======================= */
+$("btn-start").addEventListener("click", () => { if (mapsReady) startGame(); });
+$("btn-yes").addEventListener("click", () => answer(true));
+$("btn-no").addEventListener("click", () => answer(false));
+$("btn-next").addEventListener("click", nextRound);
+$("btn-again").addEventListener("click", startGame);
+$("btn-skip").addEventListener("click", nextRound);
+$("btn-reset").addEventListener("click", () => {
+  if (panorama && startPano) panorama.setPano(startPano);
+});
+
+loadMaps();
+</script>
+</body>
+</html>
